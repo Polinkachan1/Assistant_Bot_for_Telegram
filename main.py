@@ -108,4 +108,11 @@ def add_note(chat_id, note_text) -> None:  # добавление новой з�
     session.commit()
 
 
+def get_notes():  # получение текста всех заметок
+    session = create_session()
+    all_notes = session.query(Notes).all()
+    all_note_texts = [note.note_text for note in all_notes]
+    return all_note_texts
+
+
 bot.polling(none_stop=True, interval=0)
