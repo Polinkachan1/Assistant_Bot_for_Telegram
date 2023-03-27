@@ -32,8 +32,8 @@ def return_to_menu(message):
 def handle_replies(message):
     if message.text == '✏️ Редактировать список дел':
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        delete_button = types.KeyboardButton('➖  Удалить дело')
-        add_button = types.KeyboardButton('➕️  Добавить дело')
+        delete_button = types.KeyboardButton('➖  Удалить заметку')
+        add_button = types.KeyboardButton('➕️  Добавить заметку')
         markup.add(delete_button, add_button)
         bot.send_message(message.chat.id, text='Что именно вы хотите сделать?', reply_markup=markup)
 
@@ -44,11 +44,11 @@ def handle_replies(message):
         markup.add(weather_button, notification_time_button)
         bot.send_message(message.chat.id, text='Что вы хотите настроить?', reply_markup=markup)
 
-    elif message.text == '➖  Удалить дело':
+    elif message.text == '➖  Удалить заметку':
         ...  # должно выводить список дел и спрашивать, какое из них удалить
 
-    elif message.text == '➕️  Добавить дело':
-        ...  # должно спрашивать название дела и время, когда о нем напомнить
+    elif message.text == '➕️  Добавить заметку':
+        bot.send_message(message.chat.id, 'Чтобы добавить заметку напишите: "добавить  *текст заметки*"')
 
     elif message.text == '🌩️ Ежедневный прогноз погоды':
         markup = types.InlineKeyboardMarkup()
@@ -66,6 +66,9 @@ def handle_replies(message):
     elif message.text[:5].lower().startswith('город'):  # изменение города пользователя
         global city
         city = message.text[6:].strip()
+
+    elif message.text[:8].lower().startswith('добавить'):  # изменение города пользователя
+        new_note = message.text[9:].strip()
 
 
 @bot.callback_query_handler(func=lambda call: True)
