@@ -1,6 +1,8 @@
 import telebot
 from telebot import types
 import json
+from data.db_session import global_init, create_session
+from data.notes import Notes
 from geopy import geocoders
 import requests
 
@@ -8,6 +10,8 @@ token = '5845372418:AAHcJJDSzuUd74O2vgGBXkhUY929jFxFuPY'
 api_key = 'e056937d-4d55-412f-ae71-ec9be10f67af'
 bot = telebot.TeleBot(token)
 city = 'Волгодонск'
+
+global_init('db/notes.db')
 
 
 @bot.message_handler(commands=['start'])
@@ -35,7 +39,7 @@ def handle_replies(message):
         delete_button = types.KeyboardButton('➖  Удалить заметку')
         add_button = types.KeyboardButton('➕️  Добавить заметку')
         markup.add(delete_button, add_button)
-        bot.send_message(message.chat.id, text='Что именно вы хотите сделать?', reply_markup=markup)
+        bot.send_message(message.chat.id, text=f'Что именно вы хотите сделать?', reply_markup=markup)
 
     elif message.text == '⚙️ Настройки':
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -69,6 +73,7 @@ def handle_replies(message):
 
     elif message.text[:8].lower().startswith('добавить'):  # изменение города пользователя
         new_note = message.text[9:].strip()
+        add_note(message.chat.id, new_note)
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -91,6 +96,16 @@ def get_weather() -> str:  # получение информации о пого
     day_forecast = data['forecasts'][0]['parts']['day_short']
     return f'''Погода на сегодня: температура {day_forecast["temp"]} °C, 
 скорость ветра {day_forecast["wind_speed"]} м/с, вероятность осадков {day_forecast["prec_prob"]}%'''
+
+
+def add_note(chat_id, note_text) -> None:  # добавление новой заметки
+    session = create_session()
+    note = Notes(
+        chat_id=chat_id,
+        note_text=note_text
+    )
+    session.add(note)
+    session.commit()
 
 
 bot.polling(none_stop=True, interval=0)
