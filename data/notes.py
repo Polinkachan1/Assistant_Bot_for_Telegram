@@ -8,5 +8,5 @@ class Notes(SqlAlchemyBase):
     __tablename__ = 'notes'
     id = sqlalchemy.Column(sqlalchemy.Integer,
                            primary_key=True, autoincrement=True)
-    chat_id = sqlalchemy.Column(sqlalchemy.Integer, nullable=True)
+    chat_id = sqlalchemy.Column(sqlalchemy.Integer, nullable=True, unique=True)
     note_text = sqlalchemy.Column(sqlalchemy.String, nullable=True)

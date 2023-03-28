@@ -4,13 +4,11 @@ import json
 from data.db_session import global_init, create_session
 from data.notes import Notes
 from geopy import geocoders
+from config import *
 import requests
 
-token = '5845372418:AAHcJJDSzuUd74O2vgGBXkhUY929jFxFuPY'
-api_key = 'e056937d-4d55-412f-ae71-ec9be10f67af'
 bot = telebot.TeleBot(token)
 city = 'Волгодонск'
-
 global_init('db/notes.db')
 
 
@@ -49,7 +47,7 @@ def handle_replies(message):
         bot.send_message(message.chat.id, text='Что вы хотите настроить?', reply_markup=markup)
 
     elif message.text == '➖  Удалить заметку':
-        ...  # должно выводить список дел и спрашивать, какое из них удалить
+        bot.send_message(message.chat.id, 'Чтобы удалить заметку напишите: "удалить  *текст заметки*"')
 
     elif message.text == '➕️  Добавить заметку':
         bot.send_message(message.chat.id, 'Чтобы добавить заметку напишите: "добавить  *текст заметки*"')
@@ -71,9 +69,13 @@ def handle_replies(message):
         global city
         city = message.text[6:].strip()
 
-    elif message.text[:8].lower().startswith('добавить'):  # изменение города пользователя
-        new_note = message.text[9:].strip()
-        add_note(message.chat.id, new_note)
+    elif message.text[:8].lower().startswith('добавить'):  # добавление заметки
+        note_text = message.text[9:].strip()
+        add_note(message.chat.id, note_text)
+
+    elif message.text[:7].lower().startswith('удалить'):  # удаление заметки
+        note_text = message.text[8:].strip()
+        delete_note(message.chat.id, note_text)
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -94,25 +96,41 @@ def get_weather() -> str:  # получение информации о пого
                             headers={"X-Yandex-API-Key": 'e056937d-4d55-412f-ae71-ec9be10f67af'})
     data = response.json()
     day_forecast = data['forecasts'][0]['parts']['day_short']
-    return f'''Погода на сегодня: температура {day_forecast["temp"]} °C, 
-скорость ветра {day_forecast["wind_speed"]} м/с, вероятность осадков {day_forecast["prec_prob"]}%'''
+    return f'''Погода на сегодня: {conditions[day_forecast['condition']]}, 
+температура {day_forecast["temp"]} °C, ощущается как {day_forecast['feels_like']} °C, 
+скорость ветра {day_forecast['wind_speed']} м/с, вероятность осадков {day_forecast['prec_prob']}%'''
 
 
 def add_note(chat_id, note_text) -> None:  # добавление новой заметки
     session = create_session()
-    note = Notes(
-        chat_id=chat_id,
-        note_text=note_text
-    )
-    session.add(note)
-    session.commit()
+    if not is_already_existing_note(chat_id, note_text):
+        note = Notes(
+            chat_id=chat_id,
+            note_text=note_text
+        )
+        session.add(note)
+        session.commit()
 
 
-def get_notes():  # получение текста всех заметок
+def delete_note(chat_id, note_text) -> None:  # удаление заметки
     session = create_session()
-    all_notes = session.query(Notes).all()
+    if is_already_existing_note(chat_id, note_text):
+        session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).delete()
+        session.commit()
+
+
+def get_all_notes(chat_id):  # получение текста всех заметок пользователя
+    session = create_session()
+    all_notes = session.query(Notes).filter(Notes.chat_id == chat_id)
     all_note_texts = [note.note_text for note in all_notes]
     return all_note_texts
+
+
+def is_already_existing_note(chat_id, note_text):  # проверка существует ли такая заметка
+    session = create_session()
+    if len(session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).all()) != 0:
+        return True
+    return False
 
 
 bot.polling(none_stop=True, interval=0)
