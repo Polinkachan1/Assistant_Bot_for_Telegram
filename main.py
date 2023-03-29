@@ -27,7 +27,7 @@ def return_to_menu(message):
     edit_button = types.KeyboardButton('✏️ Редактировать список дел')
     settings_button = types.KeyboardButton('⚙️ Настройки')
     markup.add(edit_button, settings_button)
-    bot.send_message(message.chat.id, text='Выберите любой пункт меню', reply_markup=markup)
+    bot.send_message(message.chat.id, 'Выберите любой пункт меню', reply_markup=markup)
 
 
 @bot.message_handler(content_types=['text'])
@@ -37,14 +37,14 @@ def handle_replies(message):
         delete_button = types.KeyboardButton('➖  Удалить заметку')
         add_button = types.KeyboardButton('➕️  Добавить заметку')
         markup.add(delete_button, add_button)
-        bot.send_message(message.chat.id, text=f'Что именно вы хотите сделать?', reply_markup=markup)
+        bot.send_message(message.chat.id, f'Что именно вы хотите сделать?', reply_markup=markup)
 
     elif message.text == '⚙️ Настройки':
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         weather_button = types.KeyboardButton('🌩️ Ежедневный прогноз погоды')
         notification_time_button = types.KeyboardButton('🔔 Выбрать время напоминаний')
         markup.add(weather_button, notification_time_button)
-        bot.send_message(message.chat.id, text='Что вы хотите настроить?', reply_markup=markup)
+        bot.send_message(message.chat.id, 'Что вы хотите настроить?', reply_markup=markup)
 
     elif message.text == '➖  Удалить заметку':
         bot.send_message(message.chat.id, 'Чтобы удалить заметку напишите: "удалить  *текст заметки*"')
@@ -57,7 +57,7 @@ def handle_replies(message):
         weather_inline_yes = types.InlineKeyboardButton('✅ Да', callback_data='Yes')
         weather_inline_no = types.InlineKeyboardButton('❌ Нет', callback_data='No')
         markup.add(weather_inline_yes, weather_inline_no)
-        bot.send_message(message.chat.id, text='Вы хотите ежедневно получать прогноз погоды?'.format(message.from_user),
+        bot.send_message(message.chat.id, 'Вы хотите ежедневно получать прогноз погоды?'.format(message.from_user),
                          reply_markup=markup)
         bot.send_message(message.chat.id, 'Чтобы изменить город напишите: "город  *название города* "')
 
@@ -71,11 +71,19 @@ def handle_replies(message):
 
     elif message.text[:8].lower().startswith('добавить'):  # добавление заметки
         note_text = message.text[9:].strip()
-        add_note(message.chat.id, note_text)
+        if not is_already_existing_note(message.chat.id, note_text):
+            add_note(message.chat.id, note_text)
+            bot.send_message(message.chat.id, 'Заметка успешно добавлена')
+        else:
+            bot.send_message(message.chat.id, 'Ошибка: такая заметка уже существует')
 
     elif message.text[:7].lower().startswith('удалить'):  # удаление заметки
         note_text = message.text[8:].strip()
-        delete_note(message.chat.id, note_text)
+        if is_already_existing_note(message.chat.id, note_text):
+            delete_note(message.chat.id, note_text)
+            bot.send_message(message.chat.id, 'Заметка успешно удалена')
+        else:
+            bot.send_message(message.chat.id, 'Ошибка: такой заметки не существует')
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -83,9 +91,9 @@ def callback_query(call):
     request = call.data.split('_')
 
     if request[0] == 'Yes':
-        bot.answer_callback_query(call.id, text='Теперь вы будете получать прогноз погоды')
+        bot.answer_callback_query(call.id, 'Теперь вы будете получать прогноз погоды')
     elif request[0] == 'No':
-        bot.answer_callback_query(call.id, text='Больше вы не будете получать прогноз погоды')
+        bot.answer_callback_query(call.id, 'Больше вы не будете получать прогноз погоды')
 
 
 def get_weather() -> str:  # получение информации о погоде
@@ -103,20 +111,18 @@ def get_weather() -> str:  # получение информации о пого
 
 def add_note(chat_id, note_text) -> None:  # добавление новой заметки
     session = create_session()
-    if not is_already_existing_note(chat_id, note_text):
-        note = Notes(
-            chat_id=chat_id,
-            note_text=note_text
-        )
-        session.add(note)
-        session.commit()
+    note = Notes(
+        chat_id=chat_id,
+        note_text=note_text
+    )
+    session.add(note)
+    session.commit()
 
 
 def delete_note(chat_id, note_text) -> None:  # удаление заметки
     session = create_session()
-    if is_already_existing_note(chat_id, note_text):
-        session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).delete()
-        session.commit()
+    session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).delete()
+    session.commit()
 
 
 def get_all_notes(chat_id):  # получение текста всех заметок пользователя
