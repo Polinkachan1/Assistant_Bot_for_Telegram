@@ -32,6 +32,17 @@ def return_to_menu(message):
     bot.send_message(message.chat.id, 'Выберите любой пункт меню', reply_markup=markup)
 
 
+@bot.message_handler(commands=['send_all_notes'])
+def send_all_notes(message):
+    all_notes = get_all_notes(message.chat.id)
+    for note in all_notes:
+        markup = types.InlineKeyboardMarkup()
+        delete_note_inline = types.InlineKeyboardButton('➖  Удалить'.format(message.from_user),
+                                                        callback_data=f'{message.chat.id} delete {note}')
+        markup.add(delete_note_inline)
+        bot.send_message(message.chat.id, f'{note}', reply_markup=markup)
+
+
 @bot.message_handler(content_types=['text'])
 def handle_replies(message):
     if message.text == '✏️ Редактировать список дел':
@@ -56,8 +67,8 @@ def handle_replies(message):
 
     elif message.text == '🌩️ Ежедневный прогноз погоды':
         markup = types.InlineKeyboardMarkup()
-        weather_inline_yes = types.InlineKeyboardButton('✅ Да', callback_data=f'Yes {message.chat.id}')
-        weather_inline_no = types.InlineKeyboardButton('❌ Нет', callback_data=f'No {message.chat.id}')
+        weather_inline_yes = types.InlineKeyboardButton('✅ Да', callback_data=f'{message.chat.id} Yes')
+        weather_inline_no = types.InlineKeyboardButton('❌ Нет', callback_data=f'{message.chat.id} No')
         markup.add(weather_inline_yes, weather_inline_no)
         bot.send_message(message.chat.id, 'Вы хотите ежедневно получать прогноз погоды?'.format(message.from_user),
                          reply_markup=markup)
@@ -90,11 +101,12 @@ def handle_replies(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    request = call.data.split('_')[0].split()
+    request = call.data.split('_')[0]
     session = create_session()
-    chat_id = request[1]
+    chat_id = request[:10]
+    callback = request[11:]
 
-    if request[0] == 'Yes':
+    if callback == 'Yes':
         bot.answer_callback_query(call.id, 'Теперь вы будете получать прогноз погоды')
         if is_already_existing_user(chat_id):
             user = session.query(Users).filter(Users.chat_id == chat_id).first()
@@ -103,13 +115,17 @@ def callback_query(call):
         else:
             add_user(chat_id, True)
 
-    elif request[0] == 'No':
+    elif callback == 'No':
         bot.answer_callback_query(call.id, 'Больше вы не будете получать прогноз погоды')
         if is_already_existing_user(chat_id):
             user = session.query(Users).filter(Users.chat_id == chat_id).first()
             user.send_weather = False
         else:
             add_user(chat_id, False)
+
+    elif callback.startswith('delete'):
+        note = callback[7:]
+        delete_note(chat_id, note)
     session.commit()
 
 
