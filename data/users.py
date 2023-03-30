@@ -3,9 +3,9 @@ import sqlalchemy
 from .db_session import SqlAlchemyBase
 
 
-class Notes(SqlAlchemyBase):
-    __tablename__ = 'notes'
+class Users(SqlAlchemyBase):
+    __tablename__ = 'users'
     id = sqlalchemy.Column(sqlalchemy.Integer,
                            primary_key=True, autoincrement=True)
     chat_id = sqlalchemy.Column(sqlalchemy.Integer, nullable=True, unique=True)
-    note_text = sqlalchemy.Column(sqlalchemy.String, nullable=True)
+    send_weather = sqlalchemy.Column(sqlalchemy.Boolean, nullable=True)

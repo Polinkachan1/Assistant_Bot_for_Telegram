@@ -1,15 +1,17 @@
 import telebot
 from telebot import types
-import json
 from data.db_session import global_init, create_session
 from data.notes import Notes
+from data.users import Users
 from geopy import geocoders
 from config import *
 import requests
+import schedule
 
 bot = telebot.TeleBot(token)
 city = 'Волгодонск'
 global_init('db/notes.db')
+global_init('db/users.db')
 
 
 @bot.message_handler(commands=['start'])
@@ -54,8 +56,8 @@ def handle_replies(message):
 
     elif message.text == '🌩️ Ежедневный прогноз погоды':
         markup = types.InlineKeyboardMarkup()
-        weather_inline_yes = types.InlineKeyboardButton('✅ Да', callback_data='Yes')
-        weather_inline_no = types.InlineKeyboardButton('❌ Нет', callback_data='No')
+        weather_inline_yes = types.InlineKeyboardButton('✅ Да', callback_data=f'Yes {message.chat.id}')
+        weather_inline_no = types.InlineKeyboardButton('❌ Нет', callback_data=f'No {message.chat.id}')
         markup.add(weather_inline_yes, weather_inline_no)
         bot.send_message(message.chat.id, 'Вы хотите ежедневно получать прогноз погоды?'.format(message.from_user),
                          reply_markup=markup)
@@ -88,12 +90,27 @@ def handle_replies(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    request = call.data.split('_')
+    request = call.data.split('_')[0].split()
+    session = create_session()
+    chat_id = request[1]
 
     if request[0] == 'Yes':
         bot.answer_callback_query(call.id, 'Теперь вы будете получать прогноз погоды')
+        if is_already_existing_user(chat_id):
+            user = session.query(Users).filter(Users.chat_id == chat_id).first()
+            user.send_weather = True
+
+        else:
+            add_user(chat_id, True)
+
     elif request[0] == 'No':
         bot.answer_callback_query(call.id, 'Больше вы не будете получать прогноз погоды')
+        if is_already_existing_user(chat_id):
+            user = session.query(Users).filter(Users.chat_id == chat_id).first()
+            user.send_weather = False
+        else:
+            add_user(chat_id, False)
+    session.commit()
 
 
 def get_weather() -> str:  # получение информации о погоде
@@ -137,6 +154,23 @@ def is_already_existing_note(chat_id, note_text):  # проверка сущес
     if len(session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).all()) != 0:
         return True
     return False
+
+
+def is_already_existing_user(chat_id):  # проверка существует ли такая заметка
+    session = create_session()
+    if len(session.query(Users).filter(Users.chat_id == chat_id).all()) != 0:
+        return True
+    return False
+
+
+def add_user(chat_id, send_weather=False):
+    session = create_session()
+    user = Users(
+        chat_id=chat_id,
+        send_weather=send_weather
+    )
+    session.add(user)
+    session.commit()
 
 
 bot.polling(none_stop=True, interval=0)
