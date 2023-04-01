@@ -36,13 +36,16 @@ def return_to_menu(message):
 def send_all_notes(message):
     i = 0
     all_notes = get_all_notes(message.chat.id)
-    for note in all_notes:
-        i += 1
-        markup = types.InlineKeyboardMarkup()
-        delete_note_inline = types.InlineKeyboardButton('➖  Удалить'.format(message.from_user),
-                                                        callback_data=f'{message.chat.id} delete {note};{message.message_id + i}')
-        markup.add(delete_note_inline)
-        bot.send_message(message.chat.id, f'{note}', reply_markup=markup)
+    if len(all_notes) > 0:
+        for note in all_notes:
+            i += 1
+            markup = types.InlineKeyboardMarkup()
+            delete_note_inline = types.InlineKeyboardButton('➖  Удалить'.format(message.from_user),
+                                                            callback_data=f'{message.chat.id} delete {note};{message.message_id + i}')
+            markup.add(delete_note_inline)
+            bot.send_message(message.chat.id, f'{note}', reply_markup=markup)
+    else:
+        bot.send_message(message.chat.id, f'Заметок нет')
 
 
 @bot.message_handler(content_types=['text'])
@@ -126,7 +129,7 @@ def callback_query(call):
             add_user(chat_id, False)
 
     elif callback.startswith('delete'):
-        note = callback[7:].split()[0]
+        note = callback[7:].split(';')[0]
         delete_note(chat_id, note)
         bot.delete_message(chat_id, callback[7:].split(';')[1])
     session.commit()
