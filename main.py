@@ -54,7 +54,8 @@ def send_all_notes(message) -> None:
 
 @bot.message_handler(content_types=['text'])
 def handle_replies(message) -> None:
-    global chat_id
+    if not is_already_existing_user(message.chat.id):
+        add_user(message.chat.id, True)
     if message.text == '✏️ Редактировать список дел':
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         delete_button = types.KeyboardButton('➖  Удалить заметку')
@@ -83,7 +84,9 @@ def handle_replies(message) -> None:
         markup.add(weather_inline_yes, weather_inline_no)
         bot.send_message(message.chat.id, 'Вы хотите ежедневно получать прогноз погоды?'.format(message.from_user),
                          reply_markup=markup)
-        bot.send_message(message.chat.id, 'Чтобы изменить город напишите: "город  *название города* "')
+        bot.send_message(message.chat.id, '''Чтобы выбрать город, напишите: "город  *название города* "
+Чтобы выбрать время получения прогноза погоды, напишите "погода  *время* "
+Например, "город Волгодонск" и "погода 7:30"''')
 
     elif message.text == '🔔 Выбрать время напоминаний':
         ...  # должно принимать сообщение от пользователем с информацией о времени,
@@ -99,7 +102,7 @@ def handle_replies(message) -> None:
         if not is_already_existing_note(message.chat.id, note_text):
             add_note(message.chat.id, note_text, time)
             bot.send_message(message.chat.id, 'Заметка успешно добавлена')
-            # schedule.every().day.at(time).do(remind, chat_id=message.chat.id, note_text=note_text)
+            schedule.every().day.at(time).do(remind, chat_id=message.chat.id, note_text=note_text)
         else:
             bot.send_message(message.chat.id, 'Ошибка: такая заметка уже существует')
 
@@ -110,7 +113,6 @@ def handle_replies(message) -> None:
             bot.send_message(message.chat.id, 'Заметка успешно удалена')
         else:
             bot.send_message(message.chat.id, 'Ошибка: такой заметки не существует')
-    check_reminders(message.chat.id)
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -122,20 +124,13 @@ def callback_query(call) -> None:  # обработка callback
 
     if callback == 'Yes':
         bot.answer_callback_query(call.id, 'Теперь вы будете получать прогноз погоды')
-        if is_already_existing_user(chat_id):
-            user = session.query(Users).filter(Users.chat_id == chat_id).first()
-            user.send_weather = True
-
-        else:
-            add_user(chat_id, True)
+        user = session.query(Users).filter(Users.chat_id == chat_id).first()
+        user.send_weather = True
 
     elif callback == 'No':
         bot.answer_callback_query(call.id, 'Больше вы не будете получать прогноз погоды')
-        if is_already_existing_user(chat_id):
-            user = session.query(Users).filter(Users.chat_id == chat_id).first()
-            user.send_weather = False
-        else:
-            add_user(chat_id, False)
+        user = session.query(Users).filter(Users.chat_id == chat_id).first()
+        user.send_weather = False
 
     elif callback.startswith('delete'):
         note = callback[7:].split(';')[0]
@@ -182,6 +177,13 @@ def get_all_notes(chat_id) -> list:  # получение текста всех 
     return all_note_texts
 
 
+def get_all_chat_ids() -> list:
+    session = create_session()
+    all_users = session.query(Users)
+    all_chat_ids = [user.chat_id for user in all_users]
+    return all_chat_ids
+
+
 def is_already_existing_note(chat_id, note_text) -> bool:  # проверка существует ли такая заметка
     session = create_session()
     if len(session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).all()) != 0:
@@ -208,21 +210,24 @@ def add_user(chat_id, send_weather=False) -> None:  # добавление по�
 
 def remind(chat_id, note_text):  # напоминание о заметке
     bot.send_message(chat_id, f'Напоминание: {note_text}')
+    delete_note(chat_id, note_text)
     return schedule.CancelJob
 
 
-def pending():
+def pending() -> None:
     while True:
         schedule.run_pending()
         time.sleep(1)
 
 
-def check_reminders(chat_id):
-    all_notes = get_all_notes(chat_id)
-    for note in all_notes:
-        schedule.every().day.at(note[1]).do(remind, chat_id=chat_id, note_text=note[0])
-    print(schedule.get_jobs())
+def check_reminders():
+    get_all_chat_ids()
+    for chat_id in get_all_chat_ids():
+        for note_text in get_all_notes(chat_id):
+            schedule.every().day.at(note_text[1]).do(remind, chat_id=chat_id, note_text=note_text[0])
 
+
+check_reminders()
 
 th = Thread(target=pending)
 th.start()
