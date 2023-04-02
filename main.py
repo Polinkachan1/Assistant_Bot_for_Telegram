@@ -1,3 +1,5 @@
+import time
+
 import telebot
 from telebot import types
 from data.db_session import global_init, create_session
@@ -7,15 +9,17 @@ from geopy import geocoders
 from config import *
 import requests
 import schedule
+from threading import Thread, main_thread
 
 bot = telebot.TeleBot(token)
+
 city = 'Волгодонск'
 global_init('db/notes.db')
 global_init('db/users.db')
 
 
 @bot.message_handler(commands=['start'])
-def start(message):
+def start(message) -> None:
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     edit_button = types.KeyboardButton('✏️ Редактировать список дел')
     settings_button = types.KeyboardButton('⚙️ Настройки')
@@ -24,7 +28,7 @@ def start(message):
 
 
 @bot.message_handler(commands=['return_to_menu'])
-def return_to_menu(message):
+def return_to_menu(message) -> None:
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     edit_button = types.KeyboardButton('✏️ Редактировать список дел')
     settings_button = types.KeyboardButton('⚙️ Настройки')
@@ -33,7 +37,7 @@ def return_to_menu(message):
 
 
 @bot.message_handler(commands=['send_all_notes'])
-def send_all_notes(message):
+def send_all_notes(message) -> None:
     i = 0
     all_notes = get_all_notes(message.chat.id)
     if len(all_notes) > 0:
@@ -49,7 +53,7 @@ def send_all_notes(message):
 
 
 @bot.message_handler(content_types=['text'])
-def handle_replies(message):
+def handle_replies(message) -> None:
     if message.text == '✏️ Редактировать список дел':
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         delete_button = types.KeyboardButton('➖  Удалить заметку')
@@ -68,7 +72,8 @@ def handle_replies(message):
         bot.send_message(message.chat.id, 'Чтобы удалить заметку напишите: "удалить  *текст заметки*"')
 
     elif message.text == '➕️  Добавить заметку':
-        bot.send_message(message.chat.id, 'Чтобы добавить заметку напишите: "добавить  *текст заметки*"')
+        bot.send_message(message.chat.id, '''Чтобы добавить заметку напишите: "добавить  *текст заметки* *время*
+Например, "добавить помыть посуду 20:30"''')
 
     elif message.text == '🌩️ Ежедневный прогноз погоды':
         markup = types.InlineKeyboardMarkup()
@@ -88,15 +93,17 @@ def handle_replies(message):
         city = message.text[6:].strip()
 
     elif message.text[:8].lower().startswith('добавить'):  # добавление заметки
-        note_text = message.text[9:].strip()
+        note_text = ' '.join(message.text[9:].strip().split()[:-1])
+        time = message.text[9:].strip().split()[-1]
         if not is_already_existing_note(message.chat.id, note_text):
-            add_note(message.chat.id, note_text)
+            add_note(message.chat.id, note_text, time)
             bot.send_message(message.chat.id, 'Заметка успешно добавлена')
+            schedule.every().day.at(time).do(remind, chat_id=message.chat.id, note_text=note_text)
         else:
             bot.send_message(message.chat.id, 'Ошибка: такая заметка уже существует')
 
     elif message.text[:7].lower().startswith('удалить'):  # удаление заметки
-        note_text = message.text[8:].strip()
+        note_text = message.text[8:].strip().split()
         if is_already_existing_note(message.chat.id, note_text):
             delete_note(message.chat.id, note_text)
             bot.send_message(message.chat.id, 'Заметка успешно удалена')
@@ -105,7 +112,7 @@ def handle_replies(message):
 
 
 @bot.callback_query_handler(func=lambda call: True)
-def callback_query(call):
+def callback_query(call) -> None:  # обработка callback
     request = call.data.split('_')[0]
     session = create_session()
     chat_id = request[:10]
@@ -148,11 +155,12 @@ def get_weather() -> str:  # получение информации о пого
 скорость ветра {day_forecast['wind_speed']} м/с, вероятность осадков {day_forecast['prec_prob']}%'''
 
 
-def add_note(chat_id, note_text) -> None:  # добавление новой заметки
+def add_note(chat_id, note_text, time) -> None:  # добавление новой заметки
     session = create_session()
     note = Notes(
         chat_id=chat_id,
-        note_text=note_text
+        note_text=note_text,
+        reminder_time=time
     )
     session.add(note)
     session.commit()
@@ -160,32 +168,33 @@ def add_note(chat_id, note_text) -> None:  # добавление новой з�
 
 def delete_note(chat_id, note_text) -> None:  # удаление заметки
     session = create_session()
+
     session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).delete()
     session.commit()
 
 
-def get_all_notes(chat_id):  # получение текста всех заметок пользователя
+def get_all_notes(chat_id) -> list:  # получение текста всех заметок пользователя
     session = create_session()
     all_notes = session.query(Notes).filter(Notes.chat_id == chat_id)
     all_note_texts = [note.note_text for note in all_notes]
     return all_note_texts
 
 
-def is_already_existing_note(chat_id, note_text):  # проверка существует ли такая заметка
+def is_already_existing_note(chat_id, note_text) -> bool:  # проверка существует ли такая заметка
     session = create_session()
     if len(session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).all()) != 0:
         return True
     return False
 
 
-def is_already_existing_user(chat_id):  # проверка существует ли такая заметка
+def is_already_existing_user(chat_id) -> bool:  # проверка существует ли такой пользователь
     session = create_session()
     if len(session.query(Users).filter(Users.chat_id == chat_id).all()) != 0:
         return True
     return False
 
 
-def add_user(chat_id, send_weather=False):
+def add_user(chat_id, send_weather=False) -> None:  # добавление пользователя
     session = create_session()
     user = Users(
         chat_id=chat_id,
@@ -194,5 +203,19 @@ def add_user(chat_id, send_weather=False):
     session.add(user)
     session.commit()
 
+
+def remind(chat_id, note_text):  # напоминание о заметке
+    bot.send_message(chat_id, f'Напоминание: {note_text}')
+    return schedule.CancelJob
+
+
+def pending():
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
+
+th = Thread(target=pending)
+th.start()
 
 bot.polling(none_stop=True, interval=0)
