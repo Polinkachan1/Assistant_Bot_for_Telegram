@@ -9,7 +9,7 @@ from geopy import geocoders
 from config import *
 import requests
 import schedule
-from threading import Thread, main_thread
+from threading import Thread
 
 bot = telebot.TeleBot(token)
 
@@ -45,15 +45,16 @@ def send_all_notes(message) -> None:
             i += 1
             markup = types.InlineKeyboardMarkup()
             delete_note_inline = types.InlineKeyboardButton('➖  Удалить'.format(message.from_user),
-                                                            callback_data=f'{message.chat.id} delete {note};{message.message_id + i}')
+                                                            callback_data=f'{message.chat.id} delete {note[0]};{message.message_id + i}')
             markup.add(delete_note_inline)
-            bot.send_message(message.chat.id, f'{note}', reply_markup=markup)
+            bot.send_message(message.chat.id, f'{note[0]}', reply_markup=markup)
     else:
         bot.send_message(message.chat.id, f'Заметок нет')
 
 
 @bot.message_handler(content_types=['text'])
 def handle_replies(message) -> None:
+    global chat_id
     if message.text == '✏️ Редактировать список дел':
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         delete_button = types.KeyboardButton('➖  Удалить заметку')
@@ -98,7 +99,7 @@ def handle_replies(message) -> None:
         if not is_already_existing_note(message.chat.id, note_text):
             add_note(message.chat.id, note_text, time)
             bot.send_message(message.chat.id, 'Заметка успешно добавлена')
-            schedule.every().day.at(time).do(remind, chat_id=message.chat.id, note_text=note_text)
+            # schedule.every().day.at(time).do(remind, chat_id=message.chat.id, note_text=note_text)
         else:
             bot.send_message(message.chat.id, 'Ошибка: такая заметка уже существует')
 
@@ -109,6 +110,7 @@ def handle_replies(message) -> None:
             bot.send_message(message.chat.id, 'Заметка успешно удалена')
         else:
             bot.send_message(message.chat.id, 'Ошибка: такой заметки не существует')
+    check_reminders(message.chat.id)
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -176,7 +178,7 @@ def delete_note(chat_id, note_text) -> None:  # удаление заметки
 def get_all_notes(chat_id) -> list:  # получение текста всех заметок пользователя
     session = create_session()
     all_notes = session.query(Notes).filter(Notes.chat_id == chat_id)
-    all_note_texts = [note.note_text for note in all_notes]
+    all_note_texts = [(note.note_text, note.reminder_time) for note in all_notes]
     return all_note_texts
 
 
@@ -213,6 +215,13 @@ def pending():
     while True:
         schedule.run_pending()
         time.sleep(1)
+
+
+def check_reminders(chat_id):
+    all_notes = get_all_notes(chat_id)
+    for note in all_notes:
+        schedule.every().day.at(note[1]).do(remind, chat_id=chat_id, note_text=note[0])
+    print(schedule.get_jobs())
 
 
 th = Thread(target=pending)
