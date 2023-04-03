@@ -55,7 +55,7 @@ def send_all_notes(message) -> None:
 @bot.message_handler(content_types=['text'])
 def handle_replies(message) -> None:
     if not is_already_existing_user(message.chat.id):
-        add_user(message.chat.id, True)
+        add_user(message.chat.id, False)
     if message.text == '✏️ Редактировать список дел':
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         delete_button = types.KeyboardButton('➖  Удалить заметку')
@@ -114,6 +114,14 @@ def handle_replies(message) -> None:
         else:
             bot.send_message(message.chat.id, 'Ошибка: такой заметки не существует')
 
+    elif message.text.lower().startswith('погода'):
+        session = create_session()
+        user = session.query(Users).filter(Users.chat_id == message.chat.id).first()
+        time = message.text[7:].strip()
+        user.weather_time = time
+        session.commit()
+    check_reminders()
+
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call) -> None:  # обработка callback
@@ -150,6 +158,10 @@ def get_weather() -> str:  # получение информации о пого
     return f'''Погода на сегодня: {conditions[day_forecast['condition']]}, 
 температура {day_forecast["temp"]} °C, ощущается как {day_forecast['feels_like']} °C, 
 скорость ветра {day_forecast['wind_speed']} м/с, вероятность осадков {day_forecast['prec_prob']}%'''
+
+
+def send_weather(chat_id):
+    bot.send_message(chat_id, get_weather())
 
 
 def add_note(chat_id, note_text, time) -> None:  # добавление новой заметки
@@ -198,11 +210,12 @@ def is_already_existing_user(chat_id) -> bool:  # проверка сущест�
     return False
 
 
-def add_user(chat_id, send_weather=False) -> None:  # добавление пользователя
+def add_user(chat_id, send_weather=False, weather_time='07:00') -> None:  # добавление пользователя
     session = create_session()
     user = Users(
         chat_id=chat_id,
-        send_weather=send_weather
+        send_weather=send_weather,
+        weather_time=weather_time
     )
     session.add(user)
     session.commit()
@@ -221,14 +234,17 @@ def pending() -> None:
 
 
 def check_reminders():
+    session = create_session()
     get_all_chat_ids()
     for chat_id in get_all_chat_ids():
+        for user in session.query(Users).filter(Users.chat_id == chat_id).all():
+            if user.send_weather:
+                schedule.every().day.at(user.weather_time).do(send_weather, chat_id=chat_id)
         for note_text in get_all_notes(chat_id):
             schedule.every().day.at(note_text[1]).do(remind, chat_id=chat_id, note_text=note_text[0])
 
 
 check_reminders()
-
 th = Thread(target=pending)
 th.start()
 
