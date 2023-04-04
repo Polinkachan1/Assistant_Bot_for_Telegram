@@ -1,5 +1,3 @@
-import time
-
 import telebot
 from telebot import types
 from data.db_session import global_init, create_session
@@ -10,6 +8,7 @@ from config import *
 import requests
 import schedule
 from threading import Thread
+from schedule_file import pending
 
 bot = telebot.TeleBot(token)
 
@@ -41,13 +40,13 @@ def send_all_notes(message) -> None:
     i = 0
     all_notes = get_all_notes(message.chat.id)
     if len(all_notes) > 0:
-        for note in all_notes:
+        for note in enumerate(all_notes):
             i += 1
             markup = types.InlineKeyboardMarkup()
             delete_note_inline = types.InlineKeyboardButton('➖  Удалить'.format(message.from_user),
-                                                            callback_data=f'{message.chat.id} delete {note[0]};{message.message_id + i}')
+                                                            callback_data=f'{message.chat.id} delete {note[1][0]};{message.message_id + note[0]}')
             markup.add(delete_note_inline)
-            bot.send_message(message.chat.id, f'{note[0]}', reply_markup=markup)
+            bot.send_message(message.chat.id, f'{note[1][0]}', reply_markup=markup)
     else:
         bot.send_message(message.chat.id, f'Заметок нет')
 
@@ -222,15 +221,8 @@ def remind(chat_id, note_text):  # напоминание о заметке
     return schedule.CancelJob
 
 
-def pending() -> None:
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-
-
 def check_reminders():
     session = create_session()
-    get_all_chat_ids()
     for chat_id in get_all_chat_ids():
         for user in session.query(Users).filter(Users.chat_id == chat_id).all():
             if user.send_weather:
