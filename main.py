@@ -1,20 +1,30 @@
 import telebot
+from schedule import ScheduleValueError
 from telebot import types
 from data.db_session import global_init, create_session
 from data.notes import Notes
 from data.users import Users
 from geopy import geocoders
-from config import *
+from config import token, api_key, conditions
 import requests
-import schedule
 from threading import Thread
-from schedule_file import pending
+from schedule_service import (
+    pending,
+    add_reminder,
+    cancel_job,
+)
 
 bot = telebot.TeleBot(token)
 
-city = 'Волгодонск'
-global_init('db/notes.db')
-global_init('db/users.db')
+
+def main() -> None:
+    global_init('db/notes.db')
+
+    check_reminders()
+    th = Thread(target=pending)
+    th.start()
+
+    bot.polling(none_stop=True, interval=0)
 
 
 @bot.message_handler(commands=['start'])
@@ -37,16 +47,15 @@ def return_to_menu(message) -> None:
 
 @bot.message_handler(commands=['send_all_notes'])
 def send_all_notes(message) -> None:
-    i = 0
     all_notes = get_all_notes(message.chat.id)
     if len(all_notes) > 0:
-        for note in enumerate(all_notes):
-            i += 1
+        for i, note in enumerate(all_notes):
             markup = types.InlineKeyboardMarkup()
-            delete_note_inline = types.InlineKeyboardButton('➖  Удалить'.format(message.from_user),
-                                                            callback_data=f'{message.chat.id} delete {note[1][0]};{message.message_id + note[0]}')
-            markup.add(delete_note_inline)
-            bot.send_message(message.chat.id, f'{note[1][0]}', reply_markup=markup)
+            markup.add(
+                types.InlineKeyboardButton('➖  Удалить'.format(message.from_user),
+                                           callback_data=f'{message.chat.id} delete {note[0]};{message.message_id + i}')
+            )
+            bot.send_message(message.chat.id, f'{note[0]}', reply_markup=markup)
     else:
         bot.send_message(message.chat.id, f'Заметок нет')
 
@@ -87,16 +96,20 @@ def handle_replies(message) -> None:
 Например, "город Волгодонск" и "погода 7:30"''')
 
     elif message.text[:5].lower().startswith('город'):  # изменение города пользователя
-        global city
         city = message.text[6:].strip()
+        set_city(message.chat.id, city)
+        bot.send_message(message.chat.id, 'Город изменён')
 
     elif message.text[:8].lower().startswith('добавить'):  # добавление заметки
         note_text = ' '.join(message.text[9:].strip().split()[:-1])
         time = message.text[9:].strip().split()[-1]
         if not is_already_existing_note(message.chat.id, note_text):
-            add_note(message.chat.id, note_text, time)
-            bot.send_message(message.chat.id, 'Заметка успешно добавлена')
-            schedule.every().day.at(time).do(remind, chat_id=message.chat.id, note_text=note_text)
+            try:
+                add_reminder(time, delete_note, message.chat.id, note_text)
+                add_note(message.chat.id, note_text, time)
+                bot.send_message(message.chat.id, 'Заметка успешно добавлена')
+            except ScheduleValueError:
+                bot.send_message(message.chat.id, 'Ошибка: неверный формат времени')
         else:
             bot.send_message(message.chat.id, 'Ошибка: такая заметка уже существует')
 
@@ -127,21 +140,21 @@ def callback_query(call) -> None:  # обработка callback
     if callback == 'Yes':
         bot.answer_callback_query(call.id, 'Теперь вы будете получать прогноз погоды')
         user = session.query(Users).filter(Users.chat_id == chat_id).first()
-        user.send_weather = True
+        user.should_send_weather = True
 
     elif callback == 'No':
         bot.answer_callback_query(call.id, 'Больше вы не будете получать прогноз погоды')
         user = session.query(Users).filter(Users.chat_id == chat_id).first()
-        user.send_weather = False
+        user.should_send_weather = False
 
     elif callback.startswith('delete'):
         note = callback[7:].split(';')[0]
         delete_note(chat_id, note)
-        bot.delete_message(chat_id, callback[7:].split(';')[1])
+        bot.delete_message(chat_id, int(callback[7:].split(';')[1]) + 1)
     session.commit()
 
 
-def get_weather() -> str:  # получение информации о погоде
+def get_weather(city) -> str:  # получение информации о погоде
     geolocator = geocoders.Nominatim(user_agent="telebot")
     latitude = str(geolocator.geocode(city).latitude)
     longitude = str(geolocator.geocode(city).longitude)
@@ -155,7 +168,8 @@ def get_weather() -> str:  # получение информации о пого
 
 
 def send_weather(chat_id):
-    bot.send_message(chat_id, get_weather())
+    city = get_city(chat_id)
+    bot.send_message(chat_id, get_weather(city))
 
 
 def add_note(chat_id, note_text, time) -> None:  # добавление новой заметки
@@ -171,68 +185,72 @@ def add_note(chat_id, note_text, time) -> None:  # добавление ново
 
 def delete_note(chat_id, note_text) -> None:  # удаление заметки
     session = create_session()
-
-    session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).delete()
+    session.query(Notes).filter(Notes.chat_id == chat_id, Notes.note_text == note_text).delete()
     session.commit()
 
 
 def get_all_notes(chat_id) -> list:  # получение текста всех заметок пользователя
     session = create_session()
     all_notes = session.query(Notes).filter(Notes.chat_id == chat_id)
-    all_note_texts = [(note.note_text, note.reminder_time) for note in all_notes]
-    return all_note_texts
+    return [(note.note_text, note.reminder_time) for note in all_notes]
 
 
 def get_all_chat_ids() -> list:
     session = create_session()
     all_users = session.query(Users)
-    all_chat_ids = [user.chat_id for user in all_users]
-    return all_chat_ids
+    return [user.chat_id for user in all_users]
 
 
 def is_already_existing_note(chat_id, note_text) -> bool:  # проверка существует ли такая заметка
     session = create_session()
-    if len(session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).all()) != 0:
-        return True
-    return False
+    return len(session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).all()) != 0
 
 
 def is_already_existing_user(chat_id) -> bool:  # проверка существует ли такой пользователь
     session = create_session()
-    if len(session.query(Users).filter(Users.chat_id == chat_id).all()) != 0:
-        return True
-    return False
+    return len(session.query(Users).filter(Users.chat_id == chat_id).all()) != 0
 
 
-def add_user(chat_id, send_weather=False, weather_time='07:00') -> None:  # добавление пользователя
+def add_user(chat_id, should_send_weather=False, weather_time='07:00') -> None:  # добавление пользователя
     session = create_session()
     user = Users(
         chat_id=chat_id,
-        send_weather=send_weather,
-        weather_time=weather_time
+        should_send_weather=should_send_weather,
+        weather_time=weather_time,
+        city='Волгодонск',
     )
     session.add(user)
     session.commit()
 
 
-def remind(chat_id, note_text):  # напоминание о заметке
-    bot.send_message(chat_id, f'Напоминание: {note_text}')
+def remind(chat_id, note_text):
+    bot.send_message(chat_id, f'Напоминание: {note_text}', chat_id)
     delete_note(chat_id, note_text)
-    return schedule.CancelJob
+    return cancel_job()
 
 
 def check_reminders():
     session = create_session()
     for chat_id in get_all_chat_ids():
         for user in session.query(Users).filter(Users.chat_id == chat_id).all():
-            if user.send_weather:
-                schedule.every().day.at(user.weather_time).do(send_weather, chat_id=chat_id)
-        for note_text in get_all_notes(chat_id):
-            schedule.every().day.at(note_text[1]).do(remind, chat_id=chat_id, note_text=note_text[0])
+            if user.should_send_weather:
+                add_reminder(user.weather_time, send_weather, chat_id)
+
+        for note_text, time in get_all_notes(chat_id):
+            add_reminder(time, remind, chat_id, note_text)
 
 
-check_reminders()
-th = Thread(target=pending)
-th.start()
+def set_city(chat_id, city):
+    session = create_session()
+    user = session.query(Users).filter(Users.chat_id == chat_id).first()
+    user.city = city
+    session.commit()
 
-bot.polling(none_stop=True, interval=0)
+
+def get_city(chat_id):
+    session = create_session()
+    user = session.query(Users).filter(Users.chat_id == chat_id).first()
+    return user.city
+
+
+main()
