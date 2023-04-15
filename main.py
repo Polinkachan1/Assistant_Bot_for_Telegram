@@ -1,5 +1,4 @@
 import telebot
-from schedule import ScheduleValueError
 from telebot import types
 from data.db_session import global_init, create_session
 from data.notes import Notes
@@ -103,26 +102,29 @@ def handle_replies(message) -> None:
 
     elif message.text[:8].lower().startswith('добавить'):  # добавление заметки
         parts_of_message = message.text[9:].strip().split()
-        note_text = parts_of_message[0]
-        time = parts_of_message[1]
-        if len(parts_of_message) == 3:
-            reminder_date = parts_of_message[2]
-        else:
-            reminder_date = str(date.today())
-        if len(reminder_date) == 5:
-            reminder_date = f'{str(date.today().year)}-{reminder_date}'
-        elif len(reminder_date) == 2:
-            reminder_date = f'{str(date.today().year)}-{str(date.today().month)}-{reminder_date}'
+        try:
+            note_text = parts_of_message[0]
+            time = parts_of_message[1]
+            if len(parts_of_message) == 3:
+                reminder_date = parts_of_message[2]
+            else:
+                reminder_date = str(date.today())
+            if len(reminder_date) == 5:
+                reminder_date = f'{str(date.today().year)}-{reminder_date}'
+            elif len(reminder_date) == 2:
+                month = str(date.today().month)
+                if len(month) == 1:
+                    month = f'0{month}'
+                reminder_date = f'{str(date.today().year)}-{month}-{reminder_date}'
 
-        if not is_already_existing_note(message.chat.id, note_text):
-            try:
+            if not is_already_existing_note(message.chat.id, note_text):
                 add_reminder(time, delete_note, message.chat.id, note_text, reminder_date)
                 add_note(message.chat.id, note_text, time, reminder_date)
                 bot.send_message(message.chat.id, 'Заметка успешно добавлена')
-            except ScheduleValueError:
-                bot.send_message(message.chat.id, 'Ошибка: неверный формат ввода')
-        else:
-            bot.send_message(message.chat.id, 'Ошибка: такая заметка уже существует')
+            else:
+                bot.send_message(message.chat.id, 'Ошибка: такая заметка уже существует')
+        except:
+            bot.send_message(message.chat.id, 'Ошибка: неверный формат ввода')
 
     elif message.text[:7].lower().startswith('удалить'):  # удаление заметки
         note_text = message.text[8:].strip().split()
