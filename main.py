@@ -105,14 +105,22 @@ def handle_replies(message) -> None:
         parts_of_message = message.text[9:].strip().split()
         note_text = parts_of_message[0]
         time = parts_of_message[1]
-        reminder_date = parts_of_message[2]
+        if len(parts_of_message) == 3:
+            reminder_date = parts_of_message[2]
+        else:
+            reminder_date = str(date.today())
+        if len(reminder_date) == 5:
+            reminder_date = f'{str(date.today().year)}-{reminder_date}'
+        elif len(reminder_date) == 2:
+            reminder_date = f'{str(date.today().year)}-{str(date.today().month)}-{reminder_date}'
+
         if not is_already_existing_note(message.chat.id, note_text):
             try:
                 add_reminder(time, delete_note, message.chat.id, note_text, reminder_date)
                 add_note(message.chat.id, note_text, time, reminder_date)
                 bot.send_message(message.chat.id, 'Заметка успешно добавлена')
             except ScheduleValueError:
-                bot.send_message(message.chat.id, 'Ошибка: неверный формат времени')
+                bot.send_message(message.chat.id, 'Ошибка: неверный формат ввода')
         else:
             bot.send_message(message.chat.id, 'Ошибка: такая заметка уже существует')
 
@@ -175,13 +183,13 @@ def send_weather(chat_id):
     bot.send_message(chat_id, get_weather(city))
 
 
-def add_note(chat_id, note_text, time, date) -> None:  # добавление новой заметки
+def add_note(chat_id, note_text, time, reminder_date) -> None:  # добавление новой заметки
     session = create_session()
     note = Notes(
         chat_id=chat_id,
         note_text=note_text,
         reminder_time=time,
-        date=date
+        date=reminder_date
     )
     session.add(note)
     session.commit()
@@ -242,8 +250,8 @@ def check_reminders():
             if user.should_send_weather:
                 add_reminder(user.weather_time, send_weather, chat_id)
 
-        for note_text, time, date in get_all_notes(chat_id):
-            add_reminder(time, remind, chat_id, note_text, date)
+        for note_text, time, reminder_date in get_all_notes(chat_id):
+            add_reminder(time, remind, chat_id, note_text, reminder_date)
 
 
 def set_city(chat_id, city):
