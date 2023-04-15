@@ -8,6 +8,7 @@ from geopy import geocoders
 from config import token, api_key, conditions
 import requests
 from threading import Thread
+from datetime import date
 from schedule_service import (
     pending,
     add_reminder,
@@ -101,12 +102,14 @@ def handle_replies(message) -> None:
         bot.send_message(message.chat.id, 'Город изменён')
 
     elif message.text[:8].lower().startswith('добавить'):  # добавление заметки
-        note_text = ' '.join(message.text[9:].strip().split()[:-1])
-        time = message.text[9:].strip().split()[-1]
+        parts_of_message = message.text[9:].strip().split()
+        note_text = parts_of_message[0]
+        time = parts_of_message[1]
+        reminder_date = parts_of_message[2]
         if not is_already_existing_note(message.chat.id, note_text):
             try:
-                add_reminder(time, delete_note, message.chat.id, note_text)
-                add_note(message.chat.id, note_text, time)
+                add_reminder(time, delete_note, message.chat.id, note_text, reminder_date)
+                add_note(message.chat.id, note_text, time, reminder_date)
                 bot.send_message(message.chat.id, 'Заметка успешно добавлена')
             except ScheduleValueError:
                 bot.send_message(message.chat.id, 'Ошибка: неверный формат времени')
@@ -159,7 +162,7 @@ def get_weather(city) -> str:  # получение информации о по
     latitude = str(geolocator.geocode(city).latitude)
     longitude = str(geolocator.geocode(city).longitude)
     response = requests.get(f'https://api.weather.yandex.ru/v2/forecast/?lat={latitude}&lon={longitude}&lang=ru_RU',
-                            headers={"X-Yandex-API-Key": 'e056937d-4d55-412f-ae71-ec9be10f67af'})
+                            headers={"X-Yandex-API-Key": api_key})
     data = response.json()
     day_forecast = data['forecasts'][0]['parts']['day_short']
     return f'''Погода на сегодня: {conditions[day_forecast['condition']]}, 
@@ -172,27 +175,29 @@ def send_weather(chat_id):
     bot.send_message(chat_id, get_weather(city))
 
 
-def add_note(chat_id, note_text, time) -> None:  # добавление новой заметки
+def add_note(chat_id, note_text, time, date) -> None:  # добавление новой заметки
     session = create_session()
     note = Notes(
         chat_id=chat_id,
         note_text=note_text,
-        reminder_time=time
+        reminder_time=time,
+        date=date
     )
     session.add(note)
     session.commit()
 
 
-def delete_note(chat_id, note_text) -> None:  # удаление заметки
-    session = create_session()
-    session.query(Notes).filter(Notes.chat_id == chat_id, Notes.note_text == note_text).delete()
-    session.commit()
+def delete_note(chat_id, note_text, reminder_date=str(date.today())) -> None:  # удаление заметки
+    if reminder_date == str(date.today()):
+        session = create_session()
+        session.query(Notes).filter(Notes.chat_id == chat_id, Notes.note_text == note_text).delete()
+        session.commit()
 
 
 def get_all_notes(chat_id) -> list:  # получение текста всех заметок пользователя
     session = create_session()
     all_notes = session.query(Notes).filter(Notes.chat_id == chat_id)
-    return [(note.note_text, note.reminder_time) for note in all_notes]
+    return [(note.note_text, note.reminder_time, note.date) for note in all_notes]
 
 
 def get_all_chat_ids() -> list:
@@ -223,10 +228,11 @@ def add_user(chat_id, should_send_weather=False, weather_time='07:00') -> None: 
     session.commit()
 
 
-def remind(chat_id, note_text):
-    bot.send_message(chat_id, f'Напоминание: {note_text}', chat_id)
-    delete_note(chat_id, note_text)
-    return cancel_job()
+def remind(chat_id, note_text, reminder_date):
+    if reminder_date == str(date.today()):
+        bot.send_message(chat_id, f'Напоминание: {note_text}', chat_id)
+        delete_note(chat_id, note_text)
+        return cancel_job()
 
 
 def check_reminders():
@@ -236,8 +242,8 @@ def check_reminders():
             if user.should_send_weather:
                 add_reminder(user.weather_time, send_weather, chat_id)
 
-        for note_text, time in get_all_notes(chat_id):
-            add_reminder(time, remind, chat_id, note_text)
+        for note_text, time, date in get_all_notes(chat_id):
+            add_reminder(time, remind, chat_id, note_text, date)
 
 
 def set_city(chat_id, city):

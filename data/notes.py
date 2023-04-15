@@ -10,3 +10,4 @@ class Notes(SqlAlchemyBase):
     chat_id = sqlalchemy.Column(sqlalchemy.Integer, nullable=True, unique=True)
     note_text = sqlalchemy.Column(sqlalchemy.String, nullable=True)
     reminder_time = sqlalchemy.Column(sqlalchemy.String, nullable=True)
+    date = sqlalchemy.Column(sqlalchemy.String, nullable=True)
