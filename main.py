@@ -1,10 +1,6 @@
 import telebot
 from telebot import types
-from data.db_session import global_init, create_session
-from data.notes import Notes
-from data.users import Users
 from geopy import geocoders
-from config import token, api_key, conditions
 import requests
 from threading import Thread
 from datetime import date
@@ -13,6 +9,11 @@ from schedule_service import (
     add_reminder,
     cancel_job,
 )
+
+from config import token, api_key, conditions
+from data.db_session import global_init, create_session
+from data.notes import Notes
+from data.users import Users
 
 bot = telebot.TeleBot(token)
 
@@ -48,16 +49,16 @@ def return_to_menu(message) -> None:
 @bot.message_handler(commands=['send_all_notes'])
 def send_all_notes(message) -> None:
     all_notes = get_all_notes(message.chat.id)
-    if len(all_notes) > 0:
-        for i, note in enumerate(all_notes):
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton('➖  Удалить'.format(message.from_user),
-                                           callback_data=f'{message.chat.id} delete {note[0]};{message.message_id + i}')
-            )
-            bot.send_message(message.chat.id, f'{note[0]}', reply_markup=markup)
-    else:
+    if len(all_notes) <= 0:
         bot.send_message(message.chat.id, f'Заметок нет')
+        return
+    for i, note in enumerate(all_notes):
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton('➖  Удалить'.format(message.from_user),
+                                       callback_data=f'{message.chat.id} delete {note[0]};{message.message_id + i}')
+        )
+        bot.send_message(message.chat.id, f'{note[0]}', reply_markup=markup)
 
 
 @bot.message_handler(content_types=['text'])
@@ -102,7 +103,7 @@ def handle_replies(message) -> None:
 
     elif message.text[:8].lower().startswith('добавить'):  # добавление заметки
         parts_of_message = message.text[9:].strip().split()
-        try:
+        try:  # вынести в отдельную функцию
             note_text = parts_of_message[0]
             time = parts_of_message[1]
             if len(parts_of_message) == 3:
@@ -118,7 +119,7 @@ def handle_replies(message) -> None:
                 reminder_date = f'{str(date.today().year)}-{month}-{reminder_date}'
 
             if not is_already_existing_note(message.chat.id, note_text):
-                add_reminder(time, delete_note, message.chat.id, note_text, reminder_date)
+                add_reminder(time, delete_note_if_today, message.chat.id, note_text, reminder_date)
                 add_note(message.chat.id, note_text, time, reminder_date)
                 bot.send_message(message.chat.id, 'Заметка успешно добавлена')
             else:
@@ -129,7 +130,7 @@ def handle_replies(message) -> None:
     elif message.text[:7].lower().startswith('удалить'):  # удаление заметки
         note_text = message.text[8:].strip().split()
         if is_already_existing_note(message.chat.id, note_text):
-            delete_note(message.chat.id, note_text)
+            delete_note_if_today(message.chat.id, note_text)
             bot.send_message(message.chat.id, 'Заметка успешно удалена')
         else:
             bot.send_message(message.chat.id, 'Ошибка: такой заметки не существует')
@@ -162,12 +163,12 @@ def callback_query(call) -> None:  # обработка callback
 
     elif callback.startswith('delete'):
         note = callback[7:].split(';')[0]
-        delete_note(chat_id, note)
+        delete_note_if_today(chat_id, note)
         bot.delete_message(chat_id, int(callback[7:].split(';')[1]) + 1)
     session.commit()
 
 
-def get_weather(city) -> str:  # получение информации о погоде
+def get_weather(city: str) -> str:  # получение информации о погоде
     geolocator = geocoders.Nominatim(user_agent="telebot")
     latitude = str(geolocator.geocode(city).latitude)
     longitude = str(geolocator.geocode(city).longitude)
@@ -180,12 +181,12 @@ def get_weather(city) -> str:  # получение информации о по
 скорость ветра {day_forecast['wind_speed']} м/с, вероятность осадков {day_forecast['prec_prob']}%'''
 
 
-def send_weather(chat_id):
+def send_weather(chat_id: str) -> None:
     city = get_city(chat_id)
     bot.send_message(chat_id, get_weather(city))
 
 
-def add_note(chat_id, note_text, time, reminder_date) -> None:  # добавление новой заметки
+def add_note(chat_id: str, note_text: str, time: str, reminder_date: str) -> None:  # добавление новой заметки
     session = create_session()
     note = Notes(
         chat_id=chat_id,
@@ -197,36 +198,38 @@ def add_note(chat_id, note_text, time, reminder_date) -> None:  # добавле
     session.commit()
 
 
-def delete_note(chat_id, note_text, reminder_date=str(date.today())) -> None:  # удаление заметки
-    if reminder_date == str(date.today()):
-        session = create_session()
-        session.query(Notes).filter(Notes.chat_id == chat_id, Notes.note_text == note_text).delete()
-        session.commit()
+def delete_note_if_today(chat_id: str, note_text: str, reminder_date=None) -> None:  # удаление заметки
+    if reminder_date != str(date.today()):
+        return
+    session = create_session()
+    session.query(Notes).filter(Notes.chat_id == chat_id, Notes.note_text == note_text).delete()
+    session.commit()
 
 
-def get_all_notes(chat_id) -> list:  # получение текста всех заметок пользователя
+def get_all_notes(chat_id: str) -> list[tuple]:  # получение текста всех заметок пользователя
     session = create_session()
     all_notes = session.query(Notes).filter(Notes.chat_id == chat_id)
     return [(note.note_text, note.reminder_time, note.date) for note in all_notes]
 
 
-def get_all_chat_ids() -> list:
+def get_all_chat_ids() -> list[str]:
     session = create_session()
     all_users = session.query(Users)
     return [user.chat_id for user in all_users]
 
 
-def is_already_existing_note(chat_id, note_text) -> bool:  # проверка существует ли такая заметка
+def is_already_existing_note(chat_id: str, note_text: str) -> bool:  # проверка существует ли такая заметка
     session = create_session()
-    return len(session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).all()) != 0
+    notes = session.query(Notes).filter(Notes.chat_id == chat_id).filter(Notes.note_text == note_text).all()
+    return len(notes) != 0
 
 
-def is_already_existing_user(chat_id) -> bool:  # проверка существует ли такой пользователь
+def is_already_existing_user(chat_id: str) -> bool:  # проверка существует ли такой пользователь
     session = create_session()
     return len(session.query(Users).filter(Users.chat_id == chat_id).all()) != 0
 
 
-def add_user(chat_id, should_send_weather=False, weather_time='07:00') -> None:  # добавление пользователя
+def add_user(chat_id: str, should_send_weather=False, weather_time='07:00') -> None:  # добавление пользователя
     session = create_session()
     user = Users(
         chat_id=chat_id,
@@ -238,14 +241,15 @@ def add_user(chat_id, should_send_weather=False, weather_time='07:00') -> None: 
     session.commit()
 
 
-def remind(chat_id, note_text, reminder_date):
-    if reminder_date == str(date.today()):
-        bot.send_message(chat_id, f'Напоминание: {note_text}', chat_id)
-        delete_note(chat_id, note_text)
-        return cancel_job()
+def remind(chat_id: str, note_text: str, reminder_date: str):
+    if reminder_date != str(date.today()):
+        return
+    bot.send_message(chat_id, f'Напоминание: {note_text}', chat_id)
+    delete_note_if_today(chat_id, note_text)
+    return cancel_job()
 
 
-def check_reminders():
+def check_reminders() -> None:
     session = create_session()
     for chat_id in get_all_chat_ids():
         for user in session.query(Users).filter(Users.chat_id == chat_id).all():
@@ -256,14 +260,14 @@ def check_reminders():
             add_reminder(time, remind, chat_id, note_text, reminder_date)
 
 
-def set_city(chat_id, city):
+def set_city(chat_id: str, city: str) -> None:
     session = create_session()
     user = session.query(Users).filter(Users.chat_id == chat_id).first()
     user.city = city
     session.commit()
 
 
-def get_city(chat_id):
+def get_city(chat_id: str) -> None:
     session = create_session()
     user = session.query(Users).filter(Users.chat_id == chat_id).first()
     return user.city
