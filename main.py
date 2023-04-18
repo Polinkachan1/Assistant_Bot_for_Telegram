@@ -33,6 +33,8 @@ def start(message) -> None:
     edit_button = types.KeyboardButton('✏️ Редактировать список дел')
     settings_button = types.KeyboardButton('⚙️ Настройки')
     markup.add(edit_button, settings_button)
+    img = open('data/logo.jpg', 'rb')
+    bot.send_photo(message.chat.id, img)
     bot.send_message(message.chat.id, 'Привет ✌', reply_markup=markup)
 
 
@@ -78,11 +80,11 @@ def handle_replies(message) -> None:
         bot.send_message(message.chat.id, 'Что вы хотите настроить?', reply_markup=markup)
 
     elif message.text == '➖  Удалить заметку':
-        bot.send_message(message.chat.id, 'Чтобы удалить заметку напишите: "удалить  *текст заметки*"')
+        send_all_notes(message)
 
     elif message.text == '➕️  Добавить заметку':
-        bot.send_message(message.chat.id, '''Чтобы добавить заметку напишите: "добавить  *текст заметки* *время*
-Например, "добавить помыть посуду 20:30"''')
+        bot.send_message(message.chat.id, 'Напишите текст заметки')
+        bot.register_next_step_handler(message, handle_note_text_message)
 
     elif message.text == '🌩️ Ежедневный прогноз погоды':
         markup = types.InlineKeyboardMarkup()
@@ -267,6 +269,42 @@ def get_city(chat_id):
     session = create_session()
     user = session.query(Users).filter(Users.chat_id == chat_id).first()
     return user.city
+
+
+def handle_note_time_message(message, note_text):
+    parts_of_message = message.text.strip().split()
+    try:
+        if len(parts_of_message) == 1:
+            time = message.text.strip()
+            reminder_date = str(date.today())
+        elif len(parts_of_message) == 2:
+            time = parts_of_message[0]
+            reminder_date = parts_of_message[1]
+            if len(reminder_date) == 5:
+                reminder_date = f'{str(date.today().year)}-{reminder_date}'
+            elif len(reminder_date) == 2:
+                month = str(date.today().month)
+                if len(month) == 1:
+                    month = f'0{month}'
+                reminder_date = f'{str(date.today().year)}-{month}-{reminder_date}'
+        else:
+            bot.send_message(message.chat.id, 'Ошибка: неверный формат ввода')
+            return
+
+        if not is_already_existing_note(message.chat.id, note_text):
+            add_reminder(time, delete_note, message.chat.id, note_text, reminder_date)
+            add_note(message.chat.id, note_text, time, reminder_date)
+            bot.send_message(message.chat.id, 'Заметка успешно добавлена')
+        else:
+            bot.send_message(message.chat.id, 'Ошибка: такая заметка уже существует')
+    except:
+        bot.send_message(message.chat.id, 'Ошибка: неверный формат ввода')
+
+
+def handle_note_text_message(message):
+    note_text = message.text
+    bot.send_message(message.chat.id, 'Когда напомнить о заметке?')
+    bot.register_next_step_handler(message, handle_note_time_message, note_text)
 
 
 main()
