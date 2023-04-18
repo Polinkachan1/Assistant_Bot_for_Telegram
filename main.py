@@ -82,11 +82,12 @@ def handle_replies(message) -> None:
     elif message.text == '➖  Удалить заметку':
         send_all_notes(message)
 
-    elif message.text == '➕️  Добавить заметку':
+    elif message.text == '➕  Добавить заметку':
         bot.send_message(message.chat.id, 'Напишите текст заметки')
         bot.register_next_step_handler(message, handle_note_text_message)
 
     elif message.text == '🌩️ Ежедневный прогноз погоды':
+        city, time = get_city_and_time(message.chat.id)
         markup = types.InlineKeyboardMarkup()
         weather_inline_yes = types.InlineKeyboardButton('✅ Да', callback_data=f'{message.chat.id} Yes')
         weather_inline_no = types.InlineKeyboardButton('❌ Нет', callback_data=f'{message.chat.id} No')
@@ -97,8 +98,8 @@ def handle_replies(message) -> None:
         keyboard.add(city_button, time_button)
         bot.send_message(message.chat.id, 'Вы хотите ежедневно получать прогноз погоды?'.format(message.from_user),
                          reply_markup=markup)
-        bot.send_message(message.chat.id, f'В ... вам будет прислан прогноз погоды для города ...',
-                         reply_markup=keyboard)
+        bot.send_message(message.chat.id, f'''Выбранный город: {city}
+Время: {time}''', reply_markup=keyboard)
 
     elif message.text == '🏙️️️ Изменить город':
         bot.send_message(message.chat.id, 'Введите название города')
@@ -147,7 +148,7 @@ def get_weather(city) -> str:  # получение информации о по
 
 
 def send_weather(chat_id):
-    city = get_city(chat_id)
+    city = get_city_and_time(chat_id),
     bot.send_message(chat_id, get_weather(city))
 
 
@@ -161,6 +162,7 @@ def add_note(chat_id, note_text, time, reminder_date) -> None:  # добавле
     )
     session.add(note)
     session.commit()
+    check_reminders()
 
 
 def delete_note(chat_id, note_text, reminder_date=str(date.today())) -> None:  # удаление заметки
@@ -168,6 +170,7 @@ def delete_note(chat_id, note_text, reminder_date=str(date.today())) -> None:  #
         session = create_session()
         session.query(Notes).filter(Notes.chat_id == chat_id, Notes.note_text == note_text).delete()
         session.commit()
+    check_reminders()
 
 
 def get_all_notes(chat_id) -> list:  # получение текста всех заметок пользователя
@@ -237,12 +240,13 @@ def set_weather_time(message):
     user.weather_time = time
     session.commit()
     bot.send_message(message.chat.id, 'Время изменено')
+    check_reminders()
 
 
-def get_city(chat_id):
+def get_city_and_time(chat_id):
     session = create_session()
     user = session.query(Users).filter(Users.chat_id == chat_id).first()
-    return user.city
+    return user.city, user.weather_time
 
 
 def handle_note_time_message(message, note_text):
