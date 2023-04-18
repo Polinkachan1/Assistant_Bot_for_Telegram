@@ -69,7 +69,7 @@ def handle_replies(message) -> None:
     if message.text == '✏️ Редактировать список дел':
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         delete_button = types.KeyboardButton('➖  Удалить заметку')
-        add_button = types.KeyboardButton('➕️  Добавить заметку')
+        add_button = types.KeyboardButton('➕  Добавить заметку')
         markup.add(delete_button, add_button)
         bot.send_message(message.chat.id, f'Что именно вы хотите сделать?', reply_markup=markup)
 
@@ -91,58 +91,22 @@ def handle_replies(message) -> None:
         weather_inline_yes = types.InlineKeyboardButton('✅ Да', callback_data=f'{message.chat.id} Yes')
         weather_inline_no = types.InlineKeyboardButton('❌ Нет', callback_data=f'{message.chat.id} No')
         markup.add(weather_inline_yes, weather_inline_no)
+        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        city_button = types.KeyboardButton('🏙️️️ Изменить город')
+        time_button = types.KeyboardButton('🕓️️ Изменить время')
+        keyboard.add(city_button, time_button)
         bot.send_message(message.chat.id, 'Вы хотите ежедневно получать прогноз погоды?'.format(message.from_user),
                          reply_markup=markup)
-        bot.send_message(message.chat.id, '''Чтобы выбрать город, напишите: "город  *название города* "
-Чтобы выбрать время получения прогноза погоды, напишите "погода  *время* "
-Например, "город Волгодонск" и "погода 7:30"''')
+        bot.send_message(message.chat.id, f'В ... вам будет прислан прогноз погоды для города ...',
+                         reply_markup=keyboard)
 
-    elif message.text[:5].lower().startswith('город'):  # изменение города пользователя
-        city = message.text[6:].strip()
-        set_city(message.chat.id, city)
-        bot.send_message(message.chat.id, 'Город изменён')
+    elif message.text == '🏙️️️ Изменить город':
+        bot.send_message(message.chat.id, 'Введите название города')
+        bot.register_next_step_handler(message, set_city)
 
-    elif message.text[:8].lower().startswith('добавить'):  # добавление заметки
-        parts_of_message = message.text[9:].strip().split()
-        try:
-            note_text = parts_of_message[0]
-            time = parts_of_message[1]
-            if len(parts_of_message) == 3:
-                reminder_date = parts_of_message[2]
-            else:
-                reminder_date = str(date.today())
-            if len(reminder_date) == 5:
-                reminder_date = f'{str(date.today().year)}-{reminder_date}'
-            elif len(reminder_date) == 2:
-                month = str(date.today().month)
-                if len(month) == 1:
-                    month = f'0{month}'
-                reminder_date = f'{str(date.today().year)}-{month}-{reminder_date}'
-
-            if not is_already_existing_note(message.chat.id, note_text):
-                add_reminder(time, delete_note, message.chat.id, note_text, reminder_date)
-                add_note(message.chat.id, note_text, time, reminder_date)
-                bot.send_message(message.chat.id, 'Заметка успешно добавлена')
-            else:
-                bot.send_message(message.chat.id, 'Ошибка: такая заметка уже существует')
-        except:
-            bot.send_message(message.chat.id, 'Ошибка: неверный формат ввода')
-
-    elif message.text[:7].lower().startswith('удалить'):  # удаление заметки
-        note_text = message.text[8:].strip().split()
-        if is_already_existing_note(message.chat.id, note_text):
-            delete_note(message.chat.id, note_text)
-            bot.send_message(message.chat.id, 'Заметка успешно удалена')
-        else:
-            bot.send_message(message.chat.id, 'Ошибка: такой заметки не существует')
-
-    elif message.text.lower().startswith('погода'):
-        session = create_session()
-        user = session.query(Users).filter(Users.chat_id == message.chat.id).first()
-        time = message.text[7:].strip()
-        user.weather_time = time
-        session.commit()
-    check_reminders()
+    elif message.text == '🕓️️ Изменить время':
+        bot.send_message(message.chat.id, 'Когда вам присылать прогноз погоды?')
+        bot.register_next_step_handler(message, set_weather_time)
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -258,11 +222,21 @@ def check_reminders():
             add_reminder(time, remind, chat_id, note_text, reminder_date)
 
 
-def set_city(chat_id, city): # выбрать город
+def set_city(message):  # выбрать город
     session = create_session()
-    user = session.query(Users).filter(Users.chat_id == chat_id).first()
-    user.city = city
+    user = session.query(Users).filter(Users.chat_id == message.chat.id).first()
+    user.city = message.text.strip()
     session.commit()
+    bot.send_message(message.chat.id, 'Город изменён')
+
+
+def set_weather_time(message):
+    session = create_session()
+    user = session.query(Users).filter(Users.chat_id == message.chat.id).first()
+    time = message.text.strip()
+    user.weather_time = time
+    session.commit()
+    bot.send_message(message.chat.id, 'Время изменено')
 
 
 def get_city(chat_id):
