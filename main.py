@@ -258,7 +258,7 @@ def check_reminders():
             add_reminder(time, remind, chat_id, note_text, reminder_date)
 
 
-def set_city(chat_id, city):
+def set_city(chat_id, city): # выбрать город
     session = create_session()
     user = session.query(Users).filter(Users.chat_id == chat_id).first()
     user.city = city
