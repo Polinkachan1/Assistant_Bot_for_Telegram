@@ -1,10 +1,12 @@
+import re
+
 import telebot
 from telebot import types
 from data.db_session import global_init, create_session
 from data.notes import Notes
 from data.users import Users
 from geopy import geocoders
-from config import token, api_key, conditions
+from config import token, api_key, conditions, time_format, incomplete_time_format
 import requests
 from threading import Thread
 from datetime import date
@@ -131,6 +133,7 @@ def callback_query(call) -> None:  # обработка callback
         note = callback[7:].split(';')[0]
         delete_note(chat_id, note)
         bot.delete_message(chat_id, int(callback[7:].split(';')[1]) + 1)
+        check_reminders()
     session.commit()
 
 
@@ -252,22 +255,7 @@ def get_city_and_time(chat_id):
 def handle_note_time_message(message, note_text):
     parts_of_message = message.text.strip().split()
     try:
-        if len(parts_of_message) == 1:
-            time = message.text.strip()
-            reminder_date = str(date.today())
-        elif len(parts_of_message) == 2:
-            time = parts_of_message[0]
-            reminder_date = parts_of_message[1]
-            if len(reminder_date) == 5:
-                reminder_date = f'{str(date.today().year)}-{reminder_date}'
-            elif len(reminder_date) == 2:
-                month = str(date.today().month)
-                if len(month) == 1:
-                    month = f'0{month}'
-                reminder_date = f'{str(date.today().year)}-{month}-{reminder_date}'
-        else:
-            bot.send_message(message.chat.id, 'Ошибка: неверный формат ввода')
-            return
+        time, reminder_date = parse_time_message(message, parts_of_message)
 
         if not is_already_existing_note(message.chat.id, note_text):
             add_reminder(time, delete_note, message.chat.id, note_text, reminder_date)
@@ -275,7 +263,7 @@ def handle_note_time_message(message, note_text):
             bot.send_message(message.chat.id, 'Заметка успешно добавлена')
         else:
             bot.send_message(message.chat.id, 'Ошибка: такая заметка уже существует')
-    except:
+    except ValueError:
         bot.send_message(message.chat.id, 'Ошибка: неверный формат ввода')
 
 
@@ -283,6 +271,30 @@ def handle_note_text_message(message):
     note_text = message.text
     bot.send_message(message.chat.id, 'Когда напомнить о заметке?')
     bot.register_next_step_handler(message, handle_note_time_message, note_text)
+
+
+def parse_time_message(message, parts_of_message):
+    if len(parts_of_message) == 1:
+        time = message.text.strip()
+        reminder_date = str(date.today())
+    elif len(parts_of_message) == 2:
+        time, reminder_date = parts_of_message
+        if len(reminder_date) == 5:
+            reminder_date = f'{str(date.today().year)}-{reminder_date}'
+        elif len(reminder_date) == 2:
+            month = str(date.today().month)
+            if len(month) == 1:
+                month = f'0{month}'
+            reminder_date = f'{str(date.today().year)}-{month}-{reminder_date}'
+        else:
+            raise ValueError('Invalid date format')
+    else:
+        raise ValueError('Invalid date format')
+    if re.fullmatch(incomplete_time_format, time):
+        time = '0' + time
+    if not re.fullmatch(time_format, time):
+        raise ValueError('Invalid date format')
+    return time, reminder_date
 
 
 main()
