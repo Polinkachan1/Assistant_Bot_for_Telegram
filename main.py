@@ -294,6 +294,7 @@ def parse_time_message(message, parts_of_message):
         time = '0' + time
     if not re.fullmatch(time_format, time):
         raise ValueError('Invalid date format')
+    time = f'{time[:2]}:{time[3:]}'
     return time, reminder_date
 
 
