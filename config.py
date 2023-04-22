@@ -21,5 +21,3 @@ conditions = {
     'thunderstorm-with-rain': 'дождь с грозой',
     'thunderstorm-with-hail': 'гроза с градом',
 }
-time_format = r'\d\d\W\d\d'
-incomplete_time_format = r'\d\W\d\d'

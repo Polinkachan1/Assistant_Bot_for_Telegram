@@ -1,12 +1,11 @@
 import re
-
 import telebot
 from telebot import types
 from data.db_session import global_init, create_session
 from data.notes import Notes
 from data.users import Users
 from geopy import geocoders
-from config import token, api_key, conditions, time_format, incomplete_time_format
+from config import token, api_key, conditions
 import requests
 from threading import Thread
 from datetime import date
@@ -25,7 +24,6 @@ def main() -> None:
     check_reminders()
     th = Thread(target=pending)
     th.start()
-
     bot.polling(none_stop=True, interval=0)
 
 
@@ -212,7 +210,7 @@ def add_user(chat_id, should_send_weather=False, weather_time='07:00') -> None: 
 
 def remind(chat_id, note_text, reminder_date):
     if reminder_date == str(date.today()):
-        bot.send_message(chat_id, f'Напоминание: {note_text}', chat_id)
+        bot.send_message(chat_id, f'Напоминание: {note_text}')
         delete_note(chat_id, note_text)
         return cancel_job()
 
@@ -273,6 +271,9 @@ def handle_note_text_message(message):
     bot.register_next_step_handler(message, handle_note_time_message, note_text)
 
 
+time_format = re.compile(r'(?P<hours>\d{1,2})\W(?P<minutes>\d{2})')
+
+
 def parse_time_message(message, parts_of_message):
     if len(parts_of_message) == 1:
         time = message.text.strip()
@@ -290,11 +291,12 @@ def parse_time_message(message, parts_of_message):
             raise ValueError('Invalid date format')
     else:
         raise ValueError('Invalid date format')
-    if re.fullmatch(incomplete_time_format, time):
-        time = '0' + time
     if not re.fullmatch(time_format, time):
         raise ValueError('Invalid date format')
-    time = f'{time[:2]}:{time[3:]}'
+    match = time_format.search(time)
+    hours = int(match.group("hours"))
+    minutes = match.group("minutes")
+    time = f'{hours:02}:{minutes}'
     return time, reminder_date
 
 
